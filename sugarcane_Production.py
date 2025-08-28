@@ -1,9 +1,12 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
-# Title
-st.title("🌱 Sugarcane Production Analysis")
+# Title with image
+st.title("🌱 Sugarcane Production Analysis Dashboard")
+
+st.markdown("### 📊 Explore trends, compare countries, and analyze year-wise sugarcane production.")
 
 # Load dataset
 @st.cache_data
@@ -15,43 +18,100 @@ def load_data():
 
 df = load_data()
 
+# Helper: format numbers into words
+def format_number(num):
+    if num >= 1_000_000_000:
+        return f"{num/1_000_000_000:.2f} Billion"
+    elif num >= 1_000_000:
+        return f"{num/1_000_000:.2f} Million"
+    elif num >= 1_000:
+        return f"{num/1_000:.2f} Thousand"
+    else:
+        return str(int(num))
+
 # Show dataset preview
-if st.checkbox("Show raw data"):
+if st.checkbox("📂 Show raw data"):
     st.write(df.head())
 
-# Country selection
-country_list = df["Country"].unique()
-selected_country = st.selectbox("Select a country", sorted(country_list))
+# Country selection (default = India if present)
+country_list = sorted(df["Country"].unique())
+default_index = country_list.index("India") if "India" in country_list else 0
+
+selected_country = st.selectbox("🌍 Select a country", country_list, index=default_index)
+
+# Show country flag if available (using FlagCDN)
+st.image(f"https://flagcdn.com/w320/{selected_country[:2].lower()}.png", width=100, caption=f"{selected_country} Flag")
 
 # Filter data for selected country
 country_df = df[df["Country"] == selected_country]
 
-# Line chart
-st.subheader(f"{selected_country} - Sugarcane Production Over Years")
-st.line_chart(country_df.set_index("Year")["Production(tonnes)"])
+# --- Line chart with formatted y-axis ---
+st.subheader(f"📈 {selected_country} - Sugarcane Production Over Years")
 
-# World average
-world_avg = round(df["Production(tonnes)"].mean(), 2)
-st.metric("🌍 World Average Production", f"{world_avg} tonnes")
+fig, ax = plt.subplots(figsize=(8, 4))
+ax.plot(country_df["Year"], country_df["Production(tonnes)"], marker="o", linestyle="-", color="green")
 
-# Country statistics
-avg_prod = round(country_df["Production(tonnes)"].mean(), 2)
-max_prod = round(country_df["Production(tonnes)"].max(), 2)
-min_prod = round(country_df["Production(tonnes)"].min(), 2)
+ax.set_title(f"Sugarcane Production in {selected_country}")
+ax.set_xlabel("Year")
+ax.set_ylabel("Production (tonnes)")
 
-st.write(f"**Average Production of {selected_country}:** {avg_prod} tonnes")
-st.write(f"**Maximum Production of {selected_country}:** {max_prod} tonnes")
-st.write(f"**Minimum Production of {selected_country}:** {min_prod} tonnes")
+def format_number_axis(x, pos):
+    if x >= 1_000_000_000:
+        return f"{x/1_000_000_000:.1f}B"
+    elif x >= 1_000_000:
+        return f"{x/1_000_000:.1f}M"
+    elif x >= 1_000:
+        return f"{x/1_000:.1f}K"
+    else:
+        return str(int(x))
 
-# Year-wise increase analysis
-st.subheader(f"Years when {selected_country} produced more than previous year")
-years_increased = []
-data = country_df.values
-for i in range(1, len(data)):
-    if data[i][3] > data[i-1][3]:
-        years_increased.append(f"{data[i][2]} more than {data[i-1][2]}")
+ax.yaxis.set_major_formatter(ticker.FuncFormatter(format_number_axis))
+ax.grid(True, linestyle="--", alpha=0.5)
 
-if years_increased:
-    st.write(years_increased)
+st.pyplot(fig)
+
+# --- Country statistics ---
+st.markdown("### 📊 Country Statistics")
+
+avg_prod = country_df["Production(tonnes)"].mean()
+max_prod = country_df["Production(tonnes)"].max()
+min_prod = country_df["Production(tonnes)"].min()
+
+col1, col2, col3 = st.columns(3)
+col1.metric("📉 Minimum", format_number(min_prod))
+col2.metric("📊 Average", format_number(avg_prod))
+col3.metric("📈 Maximum", format_number(max_prod))
+
+# --- Year-wise comparison ---
+last_year = int(country_df['Year'].max())
+
+present_year = st.number_input(
+    "📅 Enter a year to check change from previous year:",
+    min_value=int(country_df['Year'].min()),
+    max_value=last_year,
+    value=last_year,
+    step=1
+)
+
+year_data = country_df[country_df['Year'] == present_year]
+
+if not year_data.empty:
+    idx = year_data.index[0]
+    if idx > 0:
+        current_prod = country_df.loc[idx, 'Production(tonnes)']
+        prev_prod = country_df.loc[idx - 1, 'Production(tonnes)']
+
+        if current_prod > prev_prod:
+            st.success(f"✅ In {present_year}, {selected_country}'s sugarcane production **increased** compared to {present_year-1}. ({format_number(prev_prod)} → {format_number(current_prod)})")
+        elif current_prod < prev_prod:
+            st.error(f"❌ In {present_year}, {selected_country}'s sugarcane production **decreased** compared to {present_year-1}. ({format_number(prev_prod)} → {format_number(current_prod)})")
+        else:
+            st.info(f"ℹ️ In {present_year}, {selected_country}'s sugarcane production **remained the same** as {present_year-1}. ({format_number(current_prod)})")
+    else:
+        st.warning(f"No previous year available for {present_year}.")
 else:
-    st.write("No year with an increase compared to the previous year.")
+    st.warning("Year not found in dataset.")
+
+# --- World average ---
+world_avg = df["Production(tonnes)"].mean()
+st.markdown(f"### 🌍 World Average Production: **{format_number(world_avg)} tonnes**")
